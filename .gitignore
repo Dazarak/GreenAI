@@ -1,0 +1,34 @@
+# VS Code
+.vscode/
+
+# Modèles d'IA / Gros fichiers
+*.bin
+*.onnx
+*.gguf
+models/
+
+# Python venv
+GreenAI/
+ai_engine/GreenAI/
+chroma_db/
+ai_engine/chroma_db/
+venv/
+.venv/
+
+# Cache Python
+**/__pycache__/
+*.pyc
+
+# Node.js
+node_modules/
+npm-debug.log
+
+# Android / Kotlin / Mobile
+.gradle/
+build/
+*.apk
+.idea/
+*.iml
+
+# Clés d'API et secrets
+API_KEY.txt
