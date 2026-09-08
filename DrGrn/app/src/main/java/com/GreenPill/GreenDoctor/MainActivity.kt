@@ -6,15 +6,44 @@ import android.widget.ImageButton
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import android.net.Uri
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.util.Base64
+import androidx.activity.result.contract.ActivityResultContracts
+import java.io.ByteArrayOutputStream
 
 class MainActivity : AppCompatActivity() {
-
+    private var selectedBase64Image: String = ""
+    private lateinit var imageButton: ImageButton
     private lateinit var qrCodeTextView: TextView
     private lateinit var aiResponseTextView: TextView
     private lateinit var userResponseTextView: TextView
     private lateinit var btnRefreshContext: ImageButton
     private lateinit var messageEditText: EditText
     private lateinit var sendButton: ImageButton
+
+    private fun convertUriToBase64(uri: Uri): String {
+        val inputStream = contentResolver.openInputStream(uri)
+        val bitmap = BitmapFactory.decodeStream(inputStream)
+        inputStream?.close()
+
+        val outputStream = ByteArrayOutputStream()
+        // Compression en JPEG à 80% pour éviter un payload trop lourd
+        bitmap.compress(Bitmap.CompressFormat.JPEG, 80, outputStream)
+        val byteArray = outputStream.toByteArray()
+
+        return "data:image/jpeg;base64," + Base64.encodeToString(byteArray, Base64.NO_WRAP)
+    }
+
+    private val selectImageLauncher = registerForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        uri?.let {
+            selectedBase64Image = convertUriToBase64(it)
+            Toast.makeText(this, "Image chargée !", Toast.LENGTH_SHORT).show()
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -27,11 +56,16 @@ class MainActivity : AppCompatActivity() {
         messageEditText = findViewById(R.id.messageEditText)
         sendButton = findViewById(R.id.sendButton)
         btnRefreshContext = findViewById(R.id.buttonRefresh)
+        imageButton = findViewById(R.id.imageButton)
 
         // Récupération de la valeur du QR Code
         val scannedUrl = intent.getStringExtra("EXTRA_QR_RESULT")
         if (scannedUrl != null) {
             qrCodeTextView.text = "Lien scanné : $scannedUrl"
+        }
+
+        imageButton.setOnClickListener {
+            selectImageLauncher.launch("image/*")
         }
 
         // Action du bouton d'envoi
@@ -43,16 +77,24 @@ class MainActivity : AppCompatActivity() {
                 return@setOnClickListener
             }
 
-            if (userText.isNotEmpty()) {
+            if (userText.isNotEmpty() || selectedBase64Image.isNotEmpty()) {
                 messageEditText.isEnabled = false
                 sendButton.isEnabled = false
                 userResponseTextView.text = userText
                 aiResponseTextView.text = "L'IA réfléchit..."
 
-                // On passe l'URL scannée + le message du champ texte
-                ApiClient.sendMessage(scannedUrl, userText) { response ->
+                // Injection de l'image Base64 dans le 3ème paramètre
+                ApiClient.sendMessage(
+                    targetAddress = scannedUrl,
+                    userMessage = userText,
+                    base64Image = selectedBase64Image
+                ) { response ->
                     aiResponseTextView.text = response
                     messageEditText.text.clear()
+
+                    // Remise à zéro de l'image après envoi réussi
+                    selectedBase64Image = ""
+
                     messageEditText.isEnabled = true
                     sendButton.isEnabled = true
                 }
