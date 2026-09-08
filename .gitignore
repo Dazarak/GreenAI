@@ -31,7 +31,6 @@ api_server/dist/
 .kotlin/
 build/
 app/build/
-*.apk
 *.iml
 local.properties
 .DS_Store
