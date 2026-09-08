@@ -2,7 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import net from 'net';
 import os from 'os';
-import qrcode from 'qrcode-terminal';
+import QRCode from 'qrcode';
 import fs from 'fs';
 import path from 'path';
 
@@ -22,13 +22,15 @@ function loadApiKey(): string {
   for (const keyPath of possiblePaths) {
     if (fs.existsSync(keyPath)) {
       try {
-        const key = fs.readFileSync(keyPath, 'utf-8').trim();
+        let key = fs.readFileSync(keyPath, 'utf-8').trim();
+        // Suppression des caractères non-ASCII (dont 0x1b) et retours à la ligne
+        key = key.replace(/[^\x20-\x7E]/g, '');
         if (key.length > 0) {
           console.log(`[API] Clé chargée depuis : ${keyPath}`);
           return key;
         }
       } catch (err) {
-        // Ignorer et tester le chemin suivant
+        // Ignorer
       }
     }
   }
@@ -36,7 +38,6 @@ function loadApiKey(): string {
   console.warn("Aucun fichier API_KEY.txt valide trouvé.");
   return "";
 }
-
 
 const PORT = 8080;
 const API_SECRET_KEY = loadApiKey();
@@ -151,5 +152,9 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log("Scanne ce QR code avec l'application mobile :");
   console.log("==================================================\n");
 
-  qrcode.generate(connectionPayload, { small: true });
+  // inverse: false assure les modules noirs sur fond clair
+  QRCode.toString(connectionPayload, { type: 'terminal', inverse: false }, (err, url) => {
+    if (err) console.error("Erreur QR Code :", err);
+    else console.log(url);
+  });
 });

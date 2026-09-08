@@ -9,7 +9,9 @@ models/
 
 # Python venv
 GreenAI/
+ai_engine/qwen2_vl_7b_4bit/
 ai_engine/GreenAI/
+*.safetensors
 chroma_db/
 ai_engine/chroma_db/
 venv/

@@ -13,7 +13,7 @@ from rag import ajouter_souvenir, chercher_souvenirs, supprimer_souvenir
 
 # VARIABLE CONSTANTE
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-MODEL_ID = os.path.join(BASE_DIR, "models", "qwen2_vl_7b_4bit")
+MODEL_ID = os.path.join(os.path.dirname(os.path.abspath(__file__)), "qwen2_vl_7b_4bit")
 PORT = 5000
 
 SYSTEM_PROMPT = """Tu es un assistant IA. Tu dois TOUJOURS répondre au format JSON strict.
