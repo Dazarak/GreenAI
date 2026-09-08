@@ -1,36 +1,46 @@
-# VS Code
+# IDE / VS Code
 .vscode/
+.idea/
 
 # Modèles d'IA / Gros fichiers
 *.bin
 *.onnx
 *.gguf
+*.safetensors
 models/
 
-# Python venv
+# Python & Moteur IA (ai_engine)
 GreenAI/
-ai_engine/qwen2_vl_7b_4bit/
-ai_engine/GreenAI/
-*.safetensors
-chroma_db/
-ai_engine/chroma_db/
 venv/
 .venv/
-
-# Cache Python
+ai_engine/GreenAI/
+ai_engine/qwen2_vl_7b_4bit/
+ai_engine/chroma_db/
+chroma_db/
 **/__pycache__/
 *.pyc
 
-# Node.js
+# Node.js (api_server)
 node_modules/
-npm-debug.log
+api_server/node_modules/
+api_server/dist/
+*.log
 
-# Android / Kotlin / Mobile
+# Android / Mobile (DrGrn)
 .gradle/
+.kotlin/
 build/
+app/build/
 *.apk
-.idea/
 *.iml
+local.properties
+.DS_Store
+DrGrn/.gradle/
+DrGrn/.idea/
+DrGrn/.kotlin/
+DrGrn/build/
+DrGrn/app/build/
+DrGrn/local.properties
 
 # Clés d'API et secrets
 API_KEY.txt
