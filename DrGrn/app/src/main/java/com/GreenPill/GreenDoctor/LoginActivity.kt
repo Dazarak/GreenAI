@@ -29,6 +29,13 @@ class LoginActivity : AppCompatActivity() {
     private var cameraProvider: ProcessCameraProvider? = null
     @Volatile private var isScanned = false
 
+    companion object {
+        private const val PREFS_NAME = "GreenDoctorPrefs"
+        private const val KEY_IP = "LAST_SAVED_IP"
+        private const val KEY_PORT = "LAST_SAVED_PORT"
+        private const val KEY_TOKEN = "LAST_SAVED_TOKEN"
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_login)
@@ -54,10 +61,10 @@ class LoginActivity : AppCompatActivity() {
     }
 
     private fun checkSavedIpAndSetupButton() {
-        val prefs = getSharedPreferences("AppConfig", MODE_PRIVATE)
-        val ip = prefs.getString("SERVER_IP", null)
-        val port = prefs.getInt("SERVER_PORT", 8080)
-        val token = prefs.getString("API_TOKEN", null)
+        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        val ip = prefs.getString(KEY_IP, null)
+        val port = prefs.getInt(KEY_PORT, 8080)
+        val token = prefs.getString(KEY_TOKEN, null)
 
         if (!ip.isNullOrEmpty() && !token.isNullOrEmpty()) {
             btnQuickConnect.visibility = View.VISIBLE
@@ -66,11 +73,7 @@ class LoginActivity : AppCompatActivity() {
             btnQuickConnect.setOnClickListener {
                 if (!isScanned) {
                     isScanned = true
-
-                    val parts = ip.split(":")
-                    val ipOnly = parts[0]
-                    val jsonPayload = """{"ip":"$ipOnly","port":$port,"token":"$token"}"""
-                    
+                    val jsonPayload = """{"ip":"$ip","port":$port,"token":"$token"}"""
                     testAndConnect(jsonPayload)
                 }
             }
@@ -80,10 +83,11 @@ class LoginActivity : AppCompatActivity() {
     }
 
     private fun saveConnectionConfig(config: ServerConfig) {
-        val prefs = getSharedPreferences("GreenDoctorPrefs", MODE_PRIVATE)
+        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
         prefs.edit()
-            .putString("LAST_SAVED_IP", "${config.ip}:${config.port}")
-            .putString("LAST_SAVED_TOKEN", config.token)
+            .putString(KEY_IP, config.ip)
+            .putInt(KEY_PORT, config.port)
+            .putString(KEY_TOKEN, config.token)
             .apply()
     }
 

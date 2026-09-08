@@ -18,15 +18,10 @@ object ApiClient {
     private const val TAG = "GREEN_DOCTOR_NET"
     private val mainHandler = Handler(Looper.getMainLooper())
 
-    /**
-     * Lit soit le JSON du QR Code {"ip":"...", "port":8080, "token":"..."},
-     * soit une config enregistrée.
-     */
     fun parseConfig(target: String, defaultToken: String = ""): ServerConfig? {
         Log.d(TAG, "[PARSE] Entrée brute : '$target'")
         val cleanTarget = target.trim()
 
-        // 1. Cas où le QR Code renvoie du JSON
         if (cleanTarget.startsWith("{") && cleanTarget.endsWith("}")) {
             return try {
                 val json = JSONObject(cleanTarget)
@@ -40,7 +35,6 @@ object ApiClient {
             }
         }
 
-        // 2. Cas fallback : IP:PORT brute
         val cleanIp = cleanTarget.replace("http://", "").replace("https://", "").trim()
         val parts = cleanIp.split(":")
         if (parts.isEmpty() || parts[0].isEmpty()) return null
@@ -51,9 +45,15 @@ object ApiClient {
     }
 
     /**
-     * Effectue un GET /ping sur l'API Express HTTP
+     * Effectue un GET /ping sur l'API avec jusqu'à maxRetries tentatives.
      */
-    fun pingServer(targetAddress: String, timeoutMs: Int = 3000, callback: (Boolean, String) -> Unit) {
+    fun pingServer(
+        targetAddress: String,
+        timeoutMs: Int = 3000,
+        maxRetries: Int = 10,
+        retryDelayMs: Long = 1000,
+        callback: (Boolean, String) -> Unit
+    ) {
         thread {
             val config = parseConfig(targetAddress)
             if (config == null) {
@@ -61,38 +61,58 @@ object ApiClient {
                 return@thread
             }
 
-            var conn: HttpURLConnection? = null
-            try {
-                val url = URL("http://${config.ip}:${config.port}/ping")
-                conn = (url.openConnection() as HttpURLConnection).apply {
-                    requestMethod = "GET"
-                    connectTimeout = timeoutMs
-                    readTimeout = timeoutMs
+            var attempt = 0
+            var success = false
+            var lastError = "Impossible de joindre ${config.ip}:${config.port}"
+
+            while (attempt < maxRetries && !success) {
+                attempt++
+                var conn: HttpURLConnection? = null
+                try {
+                    Log.d(TAG, "[PING] Tentative $attempt/$maxRetries...")
+                    val url = URL("http://${config.ip}:${config.port}/ping")
+                    conn = (url.openConnection() as HttpURLConnection).apply {
+                        requestMethod = "GET"
+                        connectTimeout = timeoutMs
+                        readTimeout = timeoutMs
+                    }
+
+                    val responseCode = conn.responseCode
+                    if (responseCode == 200) {
+                        success = true
+                        mainHandler.post { callback(true, "Serveur en ligne !") }
+                        return@thread
+                    } else {
+                        lastError = "Code erreur HTTP : $responseCode"
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "[PING] Échec tentative $attempt/$maxRetries: ${e.message}")
+                    lastError = "Impossible de joindre ${config.ip}:${config.port}"
+                } finally {
+                    conn?.disconnect()
                 }
 
-                val responseCode = conn.responseCode
-                if (responseCode == 200) {
-                    mainHandler.post { callback(true, "Serveur en ligne !") }
-                } else {
-                    mainHandler.post { callback(false, "Code erreur HTTP : $responseCode") }
+                if (!success && attempt < maxRetries) {
+                    Thread.sleep(retryDelayMs)
                 }
-            } catch (e: Exception) {
-                Log.e(TAG, "[PING] Échec connexion", e)
-                mainHandler.post { callback(false, "Impossible de joindre ${config.ip}:${config.port}") }
-            } finally {
-                conn?.disconnect()
+            }
+
+            if (!success) {
+                mainHandler.post { callback(false, "$lastError ($maxRetries essais échoués)") }
             }
         }
     }
 
     /**
-     * Effectue un POST /chat sur l'API Express HTTP avec le jeton Bearer
+     * Effectue un POST /chat sur l'API avec jusqu'à maxRetries tentatives.
      */
     fun sendMessage(
         targetAddress: String,
         userMessage: String,
         base64Image: String = "",
         savedToken: String = "",
+        maxRetries: Int = 10,
+        retryDelayMs: Long = 1000,
         callback: (String) -> Unit
     ) {
         thread {
@@ -102,46 +122,63 @@ object ApiClient {
                 return@thread
             }
 
-            var conn: HttpURLConnection? = null
-            try {
-                val url = URL("http://${config.ip}:${config.port}/chat")
-                conn = (url.openConnection() as HttpURLConnection).apply {
-                    requestMethod = "POST"
-                    setRequestProperty("Content-Type", "application/json; charset=UTF-8")
-                    // Injection dynamique du jeton récupéré du QR Code ou des Préférences
-                    setRequestProperty("Authorization", "Bearer ${config.token}")
-                    connectTimeout = 5000
-                    readTimeout = 45000 // Délais laissé pour le traitement LLM
-                    doOutput = true
+            var attempt = 0
+            var success = false
+            var lastError = "Erreur réseau inconnue"
+
+            while (attempt < maxRetries && !success) {
+                attempt++
+                var conn: HttpURLConnection? = null
+                try {
+                    Log.d(TAG, "[SEND] Tentative $attempt/$maxRetries...")
+                    val url = URL("http://${config.ip}:${config.port}/chat")
+                    conn = (url.openConnection() as HttpURLConnection).apply {
+                        requestMethod = "POST"
+                        setRequestProperty("Content-Type", "application/json; charset=UTF-8")
+                        setRequestProperty("Authorization", "Bearer ${config.token}")
+                        connectTimeout = 5000
+                        readTimeout = 45000
+                        doOutput = true
+                    }
+
+                    val jsonPayload = JSONObject().apply {
+                        put("question", userMessage)
+                        put("base64_image", base64Image)
+                    }
+
+                    OutputStreamWriter(conn.outputStream, "UTF-8").use { writer ->
+                        writer.write(jsonPayload.toString())
+                        writer.flush()
+                    }
+
+                    val responseCode = conn.responseCode
+                    val stream = if (responseCode == 200) conn.inputStream else conn.errorStream
+                    val responseRaw = BufferedReader(InputStreamReader(stream, "UTF-8")).use { it.readText() }
+
+                    if (responseCode == 200) {
+                        success = true
+                        val jsonResponse = JSONObject(responseRaw)
+                        val aiReply = jsonResponse.optString("response", "Réponse vide.")
+                        mainHandler.post { callback(aiReply) }
+                        return@thread
+                    } else {
+                        lastError = "Erreur HTTP $responseCode : $responseRaw"
+                    }
+
+                } catch (e: Exception) {
+                    Log.w(TAG, "[SEND] Échec tentative $attempt/$maxRetries: ${e.message}")
+                    lastError = "Erreur réseau : ${e.localizedMessage}"
+                } finally {
+                    conn?.disconnect()
                 }
 
-                val jsonPayload = JSONObject().apply {
-                    put("question", userMessage)
-                    put("base64_image", base64Image)
+                if (!success && attempt < maxRetries) {
+                    Thread.sleep(retryDelayMs)
                 }
+            }
 
-                OutputStreamWriter(conn.outputStream, "UTF-8").use { writer ->
-                    writer.write(jsonPayload.toString())
-                    writer.flush()
-                }
-
-                val responseCode = conn.responseCode
-                val stream = if (responseCode == 200) conn.inputStream else conn.errorStream
-                val responseRaw = BufferedReader(InputStreamReader(stream, "UTF-8")).use { it.readText() }
-
-                if (responseCode == 200) {
-                    val jsonResponse = JSONObject(responseRaw)
-                    val aiReply = jsonResponse.optString("response", "Réponse vide.")
-                    mainHandler.post { callback(aiReply) }
-                } else {
-                    mainHandler.post { callback("Erreur HTTP $responseCode : $responseRaw") }
-                }
-
-            } catch (e: Exception) {
-                Log.e(TAG, "[SEND] Erreur HTTP", e)
-                mainHandler.post { callback("Erreur réseau : ${e.localizedMessage}") }
-            } finally {
-                conn?.disconnect()
+            if (!success) {
+                mainHandler.post { callback("Échec après $maxRetries tentatives. Dernier problème : $lastError") }
             }
         }
     }
