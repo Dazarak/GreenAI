@@ -5,7 +5,7 @@ import socket
 from io import BytesIO
 import torch
 from PIL import Image
-from transformers import AutoProcessor, Qwen2VLForConditionalGeneration
+from transformers import AutoProcessor, Qwen2VLForConditionalGeneration, BitsAndBytesConfig
 import qrcode
 import os
 # Lib locale
@@ -33,18 +33,32 @@ Structure JSON obligatoire :
 # VARIABLE FONCTIONNEMENT
 print("Chargement du modèle en mémoire GPU...")
 processor = AutoProcessor.from_pretrained(MODEL_ID)
+quantization_config = BitsAndBytesConfig(
+    load_in_4bit=True,
+    bnb_4bit_compute_dtype=torch.float16,
+    bnb_4bit_quant_type="nf4"
+)
+
 model = Qwen2VLForConditionalGeneration.from_pretrained(
     MODEL_ID,
-    device_map="auto"
+    quantization_config=quantization_config,
+    device_map="cuda:0"
 )
 print("Modèle prêt !\n")
 
+def process_image(base64_clean: str) -> Image.Image:
+    if "," in base64_clean:
+        base64_clean = base64_clean.split(",")[1]
+    image_bytes = base64.b64decode(base64_clean)
+    image = Image.open(BytesIO(image_bytes)).convert("RGB")
+    # Redimensionnement max 512x512 pour contenir l'usage VRAM
+    image.thumbnail((512, 512), Image.Resampling.LANCZOS)
+    return image
+
 def poser_question(question: str, base64_str: str = "", memoire_courte: str = "") -> dict:
     try:
-        # 1. Recherche RAG vectorielle
         souvenirs = chercher_souvenirs(question, n_results=2)
 
-        # 2. Construction du System Prompt
         prompt_system_actuel = SYSTEM_PROMPT
         if memoire_courte:
             prompt_system_actuel += f"\nContexte des échanges récents : {memoire_courte}"
@@ -55,27 +69,28 @@ def poser_question(question: str, base64_str: str = "", memoire_courte: str = ""
         base64_clean = base64_str.strip() if base64_str else ""
         has_image = len(base64_clean) > 0
 
-        # 3. Structure des messages pour le modèle
         messages = [
             {"role": "system", "content": [{"type": "text", "text": prompt_system_actuel}]}
         ]
 
         content = []
+        image = None
         if has_image:
-            if "," in base64_clean:
-                base64_clean = base64_clean.split(",")[1]
-            image_bytes = base64.b64decode(base64_clean)
-            image = Image.open(BytesIO(image_bytes)).convert("RGB")
-            content.append({"type": "image", "image": image})
+            image = process_image(base64_clean)
+            content.append({
+                "type": "image", 
+                "image": image,
+                "min_pixels": 256 * 28 * 28,
+                "max_pixels": 512 * 28 * 28
+            })
 
         content.append({"type": "text", "text": question})
         messages.append({"role": "user", "content": content})
 
-        # 4. Traitement Transformers
         text_prompt = processor.apply_chat_template(messages, add_generation_prompt=True)
         inputs_args = {"text": [text_prompt], "padding": True, "return_tensors": "pt"}
 
-        if has_image:
+        if has_image and image is not None:
             inputs_args["images"] = [image]
 
         inputs = processor(**inputs_args).to("cuda")
@@ -93,7 +108,6 @@ def poser_question(question: str, base64_str: str = "", memoire_courte: str = ""
             clean_up_tokenization_spaces=False
         )[0]
 
-        # Décoder le JSON généré par l'IA
         try:
             parsed_json = json.loads(reponse)
         except json.JSONDecodeError:
@@ -128,6 +142,10 @@ def poser_question(question: str, base64_str: str = "", memoire_courte: str = ""
             "nouvelle_memoire": memoire_courte,
             "response": f"Erreur serveur : {str(e)}"
         }
+    finally:
+        # Libération systématique du cache CUDA
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
 def afficher_qrcode_connexion(ip: str, port: int):
     target_data = f"{ip}:{port}"
@@ -156,7 +174,7 @@ def demarrer_serveur_socket(host="127.0.0.1", port=5000):
         print(f"Connexion reçue de : {client_address}")
 
         try:
-            client_socket.settimeout(60.0) # Augmenté pour les inférences de 7B tokens sur GPU
+            client_socket.settimeout(60.0)
             
             data_bytes = bytearray()
             while True:
@@ -183,7 +201,6 @@ def demarrer_serveur_socket(host="127.0.0.1", port=5000):
                 question = payload.get("question", "").strip()
                 base64_image = payload.get("base64_image", "")
 
-                # Interception de la commande /reset envoyée dans le champ question
                 if question.lower() == "/reset" or payload.get("action") == "reset":
                     memoire_courte = ""
                     print("=== Mémoire courte réinitialisée via /reset ===")
@@ -202,7 +219,6 @@ def demarrer_serveur_socket(host="127.0.0.1", port=5000):
                 
                 resultat_ia = poser_question(question, base64_image, memoire_courte)
 
-                # Mise à jour propre de la mémoire si elle est renvoyée dans le JSON
                 if isinstance(resultat_ia, dict):
                     memoire_courte = resultat_ia.get("nouvelle_memoire", memoire_courte)
                     print(f"[MÉMOIRE MAJ] : {memoire_courte}")
