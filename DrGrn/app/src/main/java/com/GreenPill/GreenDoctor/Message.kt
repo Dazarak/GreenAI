@@ -1,11 +1,21 @@
 package com.GreenPill.GreenDoctor
 
-import android.media.Image
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.UUID
 
 data class Message(
-    val id: String = java.util.UUID.randomUUID().toString(),
-    val image: Image,
+    val id: String = UUID.randomUUID().toString(),
     val content: String,
-    val timestamp: String,
-    val isUser: Boolean // true = utilisateur (droite), false = IA (gauche)
-)
+    val imageBase64: String? = null,
+    val timestamp: String = getCurrentTimestamp(),
+    val isUser: Boolean // true = Utilisateur, false = IA
+) {
+    companion object {
+        fun getCurrentTimestamp(): String {
+            val sdf = SimpleDateFormat("HH:mm", Locale.getDefault())
+            return sdf.format(Date())
+        }
+    }
+}

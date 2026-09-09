@@ -74,6 +74,13 @@
                     android:orientation="vertical"
                     android:layout_marginStart="16dp"
                     android:padding="8dp">
+
+                    <ImageView
+                        android:id="@+id/imageInMessage"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        app:srcCompat="@android:drawable/ic_menu_gallery" />
+
                     <TextView
                         android:id="@+id/UserRequest"
                         android:layout_width="wrap_content"
