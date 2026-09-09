@@ -10,11 +10,18 @@ import android.net.Uri
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.util.Base64
+import android.view.View
+import android.widget.FrameLayout
+import android.widget.ImageView
 import androidx.activity.result.contract.ActivityResultContracts
 import java.io.ByteArrayOutputStream
 
 class MainActivity : AppCompatActivity() {
     private var selectedBase64Image: String = ""
+
+    private lateinit var imagePreview: ImageView
+    private lateinit var previewContainer: FrameLayout
+    private lateinit var buttonRemoveImage: ImageButton
     private lateinit var imageButton: ImageButton
     private lateinit var qrCodeTextView: TextView
     private lateinit var aiResponseTextView: TextView
@@ -22,6 +29,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnRefreshContext: ImageButton
     private lateinit var messageEditText: EditText
     private lateinit var sendButton: ImageButton
+    private lateinit var imageButtonCopyUser: ImageButton
+    private lateinit var imageButtonCopyIA: ImageButton
 
     private fun convertUriToBase64(uri: Uri): String {
         val inputStream = contentResolver.openInputStream(uri)
@@ -40,9 +49,19 @@ class MainActivity : AppCompatActivity() {
         ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
         uri?.let {
+            // Affichage de la prévisualisation visuelle
+            imagePreview.setImageURI(it)
+            previewContainer.visibility = View.VISIBLE
+
+            // Encodage Base64
             selectedBase64Image = convertUriToBase64(it)
-            Toast.makeText(this, "Image chargée !", Toast.LENGTH_SHORT).show()
         }
+    }
+
+    private fun clearSelectedImage() {
+        selectedBase64Image = ""
+        imagePreview.setImageURI(null)
+        previewContainer.visibility = View.GONE
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -57,18 +76,33 @@ class MainActivity : AppCompatActivity() {
         sendButton = findViewById(R.id.sendButton)
         btnRefreshContext = findViewById(R.id.buttonRefresh)
         imageButton = findViewById(R.id.imageButton)
+        imageButtonCopyUser = findViewById(R.id.imageButtonCopyUser)
+        imageButtonCopyIA = findViewById(R.id.imageButtonCopyIA)
+        imagePreview = findViewById(R.id.imagePreview)
+        previewContainer = findViewById(R.id.previewContainer)
+        buttonRemoveImage = findViewById(R.id.buttonRemoveImage)
 
         // Récupération de la valeur du QR Code
         val scannedUrl = intent.getStringExtra("EXTRA_QR_RESULT")
         if (scannedUrl != null) {
-            qrCodeTextView.text = "Lien scanné : $scannedUrl"
+            qrCodeTextView.text = "DrGrn"
         }
 
         imageButton.setOnClickListener {
             selectImageLauncher.launch("image/*")
         }
 
-        // Action du bouton d'envoi
+        imageButtonCopyUser.setOnClickListener {
+            messageEditText.setText(userResponseTextView.text)
+        }
+        imageButtonCopyIA.setOnClickListener {
+            messageEditText.setText(aiResponseTextView.text)
+        }
+
+        buttonRemoveImage.setOnClickListener {
+            clearSelectedImage()
+        }
+
         sendButton.setOnClickListener {
             val userText = messageEditText.text.toString().trim()
 
@@ -83,7 +117,6 @@ class MainActivity : AppCompatActivity() {
                 userResponseTextView.text = userText
                 aiResponseTextView.text = "L'IA réfléchit..."
 
-                // Injection de l'image Base64 dans le 3ème paramètre
                 ApiClient.sendMessage(
                     targetAddress = scannedUrl,
                     userMessage = userText,
@@ -92,8 +125,8 @@ class MainActivity : AppCompatActivity() {
                     aiResponseTextView.text = response
                     messageEditText.text.clear()
 
-                    // Remise à zéro de l'image après envoi réussi
-                    selectedBase64Image = ""
+                    // Nettoyage de la prévisualisation après envoi
+                    clearSelectedImage()
 
                     messageEditText.isEnabled = true
                     sendButton.isEnabled = true
