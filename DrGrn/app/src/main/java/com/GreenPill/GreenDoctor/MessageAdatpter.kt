@@ -39,16 +39,12 @@ class MessageAdapter(private val messages: List<Message>) :
         val message = messages[position]
 
         if (message.isUser) {
-            // Afficher le bloc utilisateur, masquer le bloc IA
-            holder.tvUser.visibility = View.VISIBLE
-            holder.btnCopyUser.visibility = View.VISIBLE
-            holder.tvAI.visibility = View.GONE
-            holder.btnCopyIA.visibility = View.GONE
+            // Afficher conteneur Utilisateur, cacher conteneur IA
+            holder.msgUser.visibility = View.VISIBLE
             holder.msgIA.visibility = View.GONE
 
             holder.tvUser.text = message.content
 
-            // Gestion de l'image utilisateur
             if (!message.imageBase64.isNullOrEmpty()) {
                 val bitmap = base64ToBitmap(message.imageBase64)
                 holder.imageInMessage.setImageBitmap(bitmap)
@@ -57,19 +53,13 @@ class MessageAdapter(private val messages: List<Message>) :
                 holder.imageInMessage.visibility = View.GONE
             }
         } else {
-            // Masquer le bloc utilisateur et l'image, afficher le bloc IA
-            holder.tvUser.visibility = View.GONE
-            holder.btnCopyUser.visibility = View.GONE
-            holder.imageInMessage.visibility = View.GONE
+            // Afficher conteneur IA, cacher conteneur Utilisateur
+            holder.msgIA.visibility = View.VISIBLE
             holder.msgUser.visibility = View.GONE
-
-            holder.tvAI.visibility = View.VISIBLE
-            holder.btnCopyIA.visibility = View.VISIBLE
 
             holder.tvAI.text = message.content
         }
 
-        // Handlers de copie
         holder.btnCopyUser.setOnClickListener {
             copyToClipboard(holder.itemView.context, holder.tvUser.text.toString())
         }
