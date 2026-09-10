@@ -79,6 +79,7 @@
                         android:id="@+id/imageInMessage"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
+                        android:visibility="gone"
                         app:srcCompat="@android:drawable/ic_menu_gallery" />
 
                     <TextView
