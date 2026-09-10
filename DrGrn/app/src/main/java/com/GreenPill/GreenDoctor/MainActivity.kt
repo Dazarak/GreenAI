@@ -1,51 +1,48 @@
 package com.GreenPill.GreenDoctor
 
-import android.os.Bundle
-import android.widget.EditText
-import android.widget.ImageButton
-import android.widget.TextView
-import android.widget.Toast
-import androidx.appcompat.app.AppCompatActivity
-import android.net.Uri
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.net.Uri
+import android.os.Bundle
 import android.util.Base64
 import android.view.View
+import android.widget.EditText
 import android.widget.FrameLayout
+import android.widget.ImageButton
 import android.widget.ImageView
+import android.widget.TextView
+import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
-import java.io.ByteArrayOutputStream
+import androidx.appcompat.app.AppCompatActivity
 import androidx.core.graphics.scale
+import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
+import java.io.ByteArrayOutputStream
 
 class MainActivity : AppCompatActivity() {
     private var selectedBase64Image: String = ""
-    private val messageHistory = mutableListOf<Message>()
 
     private lateinit var imagePreview: ImageView
-    private lateinit var imageInMessage: ImageView
     private lateinit var previewContainer: FrameLayout
     private lateinit var buttonRemoveImage: ImageButton
     private lateinit var imageButton: ImageButton
     private lateinit var qrCodeTextView: TextView
-    private lateinit var aiResponseTextView: TextView
-    private lateinit var userResponseTextView: TextView
     private lateinit var btnRefreshContext: ImageButton
     private lateinit var messageEditText: EditText
     private lateinit var sendButton: ImageButton
-    private lateinit var imageButtonCopyUser: ImageButton
-    private lateinit var imageButtonCopyIA: ImageButton
+    private lateinit var recyclerView: RecyclerView
+    private val messageHistory = mutableListOf<Message>()
+    private lateinit var adapter: MessageAdapter
 
     private fun convertUriToBase64(uri: Uri): String {
         val inputStream = contentResolver.openInputStream(uri)
 
-        // 1. Lire d'abord uniquement la taille de l'image
         val options = BitmapFactory.Options().apply {
             inJustDecodeBounds = true
         }
         BitmapFactory.decodeStream(inputStream, null, options)
         inputStream?.close()
 
-        // 2. Calculer le sous-échantillonnage (inSampleSize)
         val maxDimension = 1024
         var inSampleSize = 1
         if (options.outHeight > maxDimension || options.outWidth > maxDimension) {
@@ -56,7 +53,6 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // 3. Charger le Bitmap sous-échantillonné
         val decodeStream = contentResolver.openInputStream(uri)
         val scaledBitmap = BitmapFactory.decodeStream(decodeStream, null, BitmapFactory.Options().apply {
             this.inSampleSize = inSampleSize
@@ -65,7 +61,6 @@ class MainActivity : AppCompatActivity() {
 
         if (scaledBitmap == null) return ""
 
-        // 4. Compression JPEG 80%
         val outputStream = ByteArrayOutputStream()
         scaledBitmap.compress(Bitmap.CompressFormat.JPEG, 80, outputStream)
         val byteArray = outputStream.toByteArray()
@@ -78,11 +73,9 @@ class MainActivity : AppCompatActivity() {
         ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
         uri?.let {
-            // Generer la base64 déjà sous-échantillonnée
             selectedBase64Image = convertUriToBase64(it)
 
             if (selectedBase64Image.isNotEmpty()) {
-                // Afficher le preview directement depuis la base64 safe
                 val bitmap = base64ToBitmap(selectedBase64Image)
                 imagePreview.setImageBitmap(bitmap)
                 previewContainer.visibility = View.VISIBLE
@@ -113,7 +106,6 @@ class MainActivity : AppCompatActivity() {
         val decodedBytes = Base64.decode(cleanBase64, Base64.DEFAULT)
         val originalBitmap = BitmapFactory.decodeByteArray(decodedBytes, 0, decodedBytes.size) ?: return ""
 
-        // 1. Calcul des dimensions
         val maxDimension = 300
         val width = originalBitmap.width
         val height = originalBitmap.height
@@ -126,13 +118,11 @@ class MainActivity : AppCompatActivity() {
                 (maxDimension * ratio).toInt() to maxDimension
             }
 
-            // Utilisation de l'extension KTX à la place de Bitmap.createScaledBitmap
             originalBitmap.scale(targetWidth, targetHeight, filter = true)
         } else {
             originalBitmap
         }
 
-        // 2. Compression JPEG à 50%
         val outputStream = ByteArrayOutputStream()
         resizedBitmap.compress(Bitmap.CompressFormat.JPEG, 50, outputStream)
 
@@ -147,20 +137,21 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        // Initialisation des vues
+        // Initialisation des vues existantes dans activity_main.xml
         qrCodeTextView = findViewById(R.id.qrCodeTextView)
-        aiResponseTextView = findViewById(R.id.AIAnswer)
-        userResponseTextView = findViewById(R.id.UserRequest)
         messageEditText = findViewById(R.id.messageEditText)
         sendButton = findViewById(R.id.sendButton)
         btnRefreshContext = findViewById(R.id.buttonRefresh)
         imageButton = findViewById(R.id.imageButton)
-        imageButtonCopyUser = findViewById(R.id.imageButtonCopyUser)
-        imageButtonCopyIA = findViewById(R.id.imageButtonCopyIA)
         imagePreview = findViewById(R.id.imagePreview)
-        imageInMessage = findViewById(R.id.imageInMessage)
         previewContainer = findViewById(R.id.previewContainer)
         buttonRemoveImage = findViewById(R.id.buttonRemoveImage)
+        recyclerView = findViewById(R.id.recyclerViewMessages)
+
+        // Configuration du RecyclerView
+        adapter = MessageAdapter(messageHistory)
+        recyclerView.layoutManager = LinearLayoutManager(this)
+        recyclerView.adapter = adapter
 
         // Récupération de la valeur du QR Code
         val scannedUrl = intent.getStringExtra("EXTRA_QR_RESULT")
@@ -172,13 +163,6 @@ class MainActivity : AppCompatActivity() {
             selectImageLauncher.launch("image/*")
         }
 
-        imageButtonCopyUser.setOnClickListener {
-            messageEditText.setText(userResponseTextView.text)
-        }
-        imageButtonCopyIA.setOnClickListener {
-            messageEditText.setText(aiResponseTextView.text)
-        }
-
         buttonRemoveImage.setOnClickListener {
             clearSelectedImage()
         }
@@ -187,36 +171,30 @@ class MainActivity : AppCompatActivity() {
             val userText = messageEditText.text.toString().trim()
 
             if (scannedUrl.isNullOrEmpty()) {
-                aiResponseTextView.text = "Erreur : Aucun lien scanné !"
+                Toast.makeText(this, "Erreur : Aucun lien scanné !", Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
             }
 
             if (userText.isNotEmpty() || selectedBase64Image.isNotEmpty()) {
+                // 1. Message de l'utilisateur
                 val userMsg = Message(
                     content = userText,
                     imageBase64 = if (selectedBase64Image.isNotEmpty()) compressBase64ForStorage(selectedBase64Image) else null,
                     isUser = true
                 )
                 messageHistory.add(userMsg)
+                adapter.notifyItemInserted(messageHistory.size - 1)
+                recyclerView.scrollToPosition(messageHistory.size - 1)
 
+                // 2. Verrouillage de la saisie pendant l'envoi
                 messageEditText.isEnabled = false
                 sendButton.isEnabled = false
-                userResponseTextView.text = userText
-
-                if (userMsg.imageBase64 != null) {
-                    val bitmap = base64ToBitmap(userMsg.imageBase64)
-                    imageInMessage.setImageBitmap(bitmap)
-                    imageInMessage.visibility = View.VISIBLE
-                } else {
-                    imageInMessage.visibility = View.GONE
-                }
-
-                aiResponseTextView.text = "L'IA réfléchit..."
+                imageButton.isEnabled = false
 
                 val imageToSend = selectedBase64Image
-
                 clearSelectedImage()
 
+                // 3. Appel API
                 ApiClient.sendMessage(
                     targetAddress = scannedUrl,
                     userMessage = userText,
@@ -224,15 +202,17 @@ class MainActivity : AppCompatActivity() {
                 ) { response ->
                     val aiMsg = Message(
                         content = response,
-                        imageBase64 = null, // L'IA ne renvoie pas d'image
+                        imageBase64 = null,
                         isUser = false
                     )
                     messageHistory.add(aiMsg)
-                    aiResponseTextView.text = response
-                    messageEditText.text.clear()
+                    adapter.notifyItemInserted(messageHistory.size - 1)
+                    recyclerView.scrollToPosition(messageHistory.size - 1)
 
+                    messageEditText.text.clear()
                     messageEditText.isEnabled = true
                     sendButton.isEnabled = true
+                    imageButton.isEnabled = true
                 }
             }
         }
@@ -246,23 +226,29 @@ class MainActivity : AppCompatActivity() {
 
             messageEditText.isEnabled = false
             sendButton.isEnabled = false
+            imageButton.isEnabled = false
             btnRefreshContext.isEnabled = false
 
-            userResponseTextView.text = "/reset"
-            aiResponseTextView.text = "L'IA reset la conversation..."
+            // Message utilisateur pour le reset
+            val resetUserMsg = Message(content = "/reset", isUser = true)
+            messageHistory.add(resetUserMsg)
+            adapter.notifyItemInserted(messageHistory.size - 1)
+            recyclerView.scrollToPosition(messageHistory.size - 1)
 
             ApiClient.sendMessage(scannedUrl, "/reset") { response ->
-                val resetMsg = Message(
+                val resetAiMsg = Message(
                     content = response,
                     imageBase64 = null,
                     isUser = false
                 )
-                messageHistory.add(resetMsg)
+                messageHistory.add(resetAiMsg)
+                adapter.notifyItemInserted(messageHistory.size - 1)
+                recyclerView.scrollToPosition(messageHistory.size - 1)
 
-                aiResponseTextView.text = response
                 messageEditText.text.clear()
                 messageEditText.isEnabled = true
                 sendButton.isEnabled = true
+                imageButton.isEnabled = true
                 btnRefreshContext.isEnabled = true
             }
         }

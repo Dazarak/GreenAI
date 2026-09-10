@@ -52,82 +52,16 @@
             </LinearLayout>
         </LinearLayout>
 
-        <ScrollView
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/recyclerViewMessages"
             android:layout_width="match_parent"
             android:layout_height="0dp"
             android:layout_weight="4"
             android:layout_marginBottom="8dp"
             android:padding="8dp"
-            android:layout_margin="8dp">
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical">
-
-                <LinearLayout
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:background="@color/light_green"
-                    android:layout_gravity="end"
-                    android:gravity="right"
-                    android:orientation="vertical"
-                    android:layout_marginStart="16dp"
-                    android:padding="8dp">
-
-                    <ImageView
-                        android:id="@+id/imageInMessage"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:visibility="gone"
-                        app:srcCompat="@android:drawable/ic_menu_gallery" />
-
-                    <TextView
-                        android:id="@+id/UserRequest"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:textColor="@color/text_color"
-                        android:textSize="20dp"
-                        android:text="Message utilisateur" />
-                    <ImageButton
-                        android:id="@+id/imageButtonCopyUser"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:backgroundTint="#0000"
-                        android:layout_weight="1"
-                        app:srcCompat="?attr/actionModeCopyDrawable" />
-
-                </LinearLayout>
-
-                <LinearLayout
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:background="@color/light_green"
-                    android:gravity="start"
-                    android:padding="8dp"
-                    android:orientation="vertical"
-                    android:layout_marginTop="8dp"
-                    android:layout_marginEnd="16dp"
-                    android:layout_gravity="start">
-                    <TextView
-                        android:id="@+id/AIAnswer"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:textColor="@color/text_color"
-                        android:textSize="20dp"
-                        android:text="Message de l'IA" />
-
-                    <ImageButton
-                        android:id="@+id/imageButtonCopyIA"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:backgroundTint="#0000"
-                        android:layout_weight="1"
-                        app:srcCompat="?attr/actionModeCopyDrawable" />
-
-                </LinearLayout>
-            </LinearLayout>
-        </ScrollView>
+            android:layout_margin="8dp"
+            tools:listitem="@layout/item_message_pair"
+            tools:itemCount="10"/>
 
         <!-- BLOC D'ENVOI ET PRÉVISUALISATION -->
         <LinearLayout
