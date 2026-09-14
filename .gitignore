@@ -2,19 +2,19 @@
 .vscode/
 .idea/
 
-# Modèles d'IA / Gros fichiers
+# Modèles d'IA / Gros fichiers & Python / Moteur IA (ai_engine)
 *.bin
 *.onnx
 *.gguf
 *.safetensors
 models/
-
-# Python & Moteur IA (ai_engine)
+*.deb
 GreenAI/
 venv/
 .venv/
 ai_engine/GreenAI/
-ai_engine/qwen2_vl_7b_4bit/
+ai_engine/llama.cpp/
+ai_engine/offload_temp/
 ai_engine/chroma_db/
 chroma_db/
 **/__pycache__/

@@ -1,112 +1,87 @@
-# Lib pour fonctionner
 import base64
 import json
 import socket
 from io import BytesIO
-import torch
-from PIL import Image
-from transformers import AutoProcessor, Qwen2VLForConditionalGeneration, BitsAndBytesConfig
-import qrcode
 import os
-# Lib locale
-from rag import ajouter_souvenir, chercher_souvenirs, supprimer_souvenir
+from PIL import Image
+from llama_cpp import Llama
+from llama_cpp.llama_chat_format import Llava15ChatHandler
 
-# VARIABLE CONSTANTE
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-MODEL_ID = os.path.join(os.path.dirname(os.path.abspath(__file__)), "qwen2_vl_7b_4bit")
+MODEL_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "gemma-4-e2b-it-Q8_0.gguf")
+MMPROJ_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mmproj-gemma-f16.gguf")
 PORT = 5000
 
 SYSTEM_PROMPT = """Tu es un assistant IA. Tu dois TOUJOURS répondre au format JSON strict.
-
-Règles pour les actions RAG :
-- "action_rag": Remplis avec un fait court UNIQUEMENT si l'utilisateur te donne un fait personnel, une préférence, ou un NOM pour un objet/plante (ex: "Je vais appeler mon arbuste Trou de balle" -> "L'arbuste de l'utilisateur s'appelle Trou de balle"). Sinon "null".
-- "action_oubli": Si l'utilisateur te demande d'oublier une info, extrais le fait à effacer. Sinon "null".
 
 Structure JSON obligatoire :
 {
   "action_rag": "Information à retenir ou null",
   "action_oubli": "Information à effacer ou null",
-  "nouvelle_memoire": "Résumé court du contexte actuel (30 mots max)",
-  "response": "Ta réponse à l'utilisateur"
+  "nouvelle_memoire": "Résumé court du sujet (15 mots max)",
+  "response": "Ta réponse"
 }"""
-
-# VARIABLE FONCTIONNEMENT
-print("Chargement du modèle en mémoire GPU...")
-processor = AutoProcessor.from_pretrained(MODEL_ID)
-quantization_config = BitsAndBytesConfig(
-    load_in_4bit=True,
-    bnb_4bit_compute_dtype=torch.float16,
-    bnb_4bit_quant_type="nf4"
-)
-
-model = Qwen2VLForConditionalGeneration.from_pretrained(
-    MODEL_ID,
-    quantization_config=quantization_config,
-    device_map="cuda:0"
-)
-print("Modèle prêt !\n")
 
 def process_image(base64_clean: str) -> Image.Image:
     if "," in base64_clean:
         base64_clean = base64_clean.split(",")[1]
     image_bytes = base64.b64decode(base64_clean)
     image = Image.open(BytesIO(image_bytes)).convert("RGB")
-    # Redimensionnement max 512x512 pour contenir l'usage VRAM
-    image.thumbnail((512, 512), Image.Resampling.LANCZOS)
+    image.thumbnail((384, 384), Image.Resampling.LANCZOS)
     return image
 
+def purger_kv_cache(llm_instance):
+    """Purge le cache de tokens natif du modèle via les méthodes de la classe Llama."""
+    try:
+        # 1. Libère la mémoire des tokens générés et du contexte
+        if hasattr(llm_instance, "clear_kv_cache"):
+            llm_instance.clear_kv_cache()
+        
+        # 2. Reinitialise les pointeurs de la séquence conversationnelle
+        llm_instance.reset()
+        
+        print("[CACHE] Cache réinitialisé proprement.")
+    except Exception as e:
+        print(f"[CACHE ERROR] Erreur lors de la purge : {e}")
+        
 def poser_question(question: str, base64_str: str = "", memoire_courte: str = "") -> dict:
     try:
-        souvenirs = chercher_souvenirs(question, n_results=2)
+        # Réinitialisation explicite du contexte avant l'inférence
+        llm.reset()
+        purger_kv_cache(llm)
 
         prompt_system_actuel = SYSTEM_PROMPT
         if memoire_courte:
             prompt_system_actuel += f"\nContexte des échanges récents : {memoire_courte}"
 
-        if souvenirs:
-            prompt_system_actuel += f"\nInformations pertinentes retrouvées en mémoire :\n{souvenirs}"
-
-        base64_clean = base64_str.strip() if base64_str else ""
-        has_image = len(base64_clean) > 0
+        if base64_str.strip():
+            img_processed = process_image(base64_str)
+            buffered = BytesIO()
+            img_processed.save(buffered, format="JPEG", quality=85)
+            clean_b64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
+            
+            # Format structuré avec la balise <image> explicite dans le texte
+            user_content = [
+                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{clean_b64}"}},
+                {"type": "text", "text": f"<image>\n{question}"}
+            ]
+        else:
+            user_content = question
 
         messages = [
-            {"role": "system", "content": [{"type": "text", "text": prompt_system_actuel}]}
+            {"role": "system", "content": prompt_system_actuel},
+            {"role": "user", "content": user_content}
         ]
 
-        content = []
-        image = None
-        if has_image:
-            image = process_image(base64_clean)
-            content.append({
-                "type": "image", 
-                "image": image,
-                "min_pixels": 256 * 28 * 28,
-                "max_pixels": 512 * 28 * 28
-            })
+        output = llm.create_chat_completion(
+            messages=messages,
+            max_tokens=512,
+            response_format={"type": "json_object"}
+        )
 
-        content.append({"type": "text", "text": question})
-        messages.append({"role": "user", "content": content})
-
-        text_prompt = processor.apply_chat_template(messages, add_generation_prompt=True)
-        inputs_args = {"text": [text_prompt], "padding": True, "return_tensors": "pt"}
-
-        if has_image and image is not None:
-            inputs_args["images"] = [image]
-
-        inputs = processor(**inputs_args).to("cuda")
-
-        with torch.no_grad():
-            output_ids = model.generate(**inputs, max_new_tokens=256)
-
-        generated_ids = [
-            out[len(inp):] for inp, out in zip(inputs.input_ids, output_ids)
-        ]
-        
-        reponse = processor.batch_decode(
-            generated_ids, 
-            skip_special_tokens=True, 
-            clean_up_tokenization_spaces=False
-        )[0]
+        reponse = output["choices"][0]["message"]["content"]
+        llm.reset()
+        purger_kv_cache(llm)
 
         try:
             parsed_json = json.loads(reponse)
@@ -118,20 +93,6 @@ def poser_question(question: str, base64_str: str = "", memoire_courte: str = ""
                 "response": reponse
             }
 
-        action_rag = parsed_json.get("action_rag")
-        if action_rag and isinstance(action_rag, str):
-            txt = action_rag.strip().lower()
-            if txt not in ["null", "none", ""] and "null" not in txt and "none" not in txt:
-                ajouter_souvenir(action_rag)
-                print(f"[ACTION RAG] Sauvegardé : {action_rag}")
-
-        action_oubli = parsed_json.get("action_oubli")
-        if action_oubli and isinstance(action_oubli, str):
-            txt = action_oubli.strip().lower()
-            if txt not in ["null", "none", ""] and "null" not in txt and "none" not in txt:
-                print(f"[ACTION OUBLI] Demande de suppression pour : {action_oubli}")
-                supprimer_souvenir(action_oubli)
-
         return parsed_json
 
     except Exception as e:
@@ -142,23 +103,7 @@ def poser_question(question: str, base64_str: str = "", memoire_courte: str = ""
             "nouvelle_memoire": memoire_courte,
             "response": f"Erreur serveur : {str(e)}"
         }
-    finally:
-        # Libération systématique du cache CUDA
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
 
-def afficher_qrcode_connexion(ip: str, port: int):
-    target_data = f"{ip}:{port}"
-    print("\n" + "="*50)
-    print(f"ADRESSE ZEROTIER : {target_data}")
-    print("Scanne le QR Code ci-dessous avec ton application mobile :")
-    print("="*50 + "\n")
-    
-    qr = qrcode.QRCode()
-    qr.add_data(target_data)
-    qr.print_ascii(invert=True)
-
-# --- SERVEUR SOCKET LOCAL ---
 def demarrer_serveur_socket(host="127.0.0.1", port=5000):
     memoire_courte = ""
 
@@ -201,23 +146,15 @@ def demarrer_serveur_socket(host="127.0.0.1", port=5000):
                 question = payload.get("question", "").strip()
                 base64_image = payload.get("base64_image", "")
 
-                if question.lower() == "/reset" or payload.get("action") == "reset":
-                    memoire_courte = ""
-                    print("=== Mémoire courte réinitialisée via /reset ===")
-                    reset_response = {
-                        "action_rag": None,
-                        "action_oubli": None,
-                        "nouvelle_memoire": "",
-                        "response": "Le contexte de la session a été remis à zéro."
-                    }
-                    response_payload = json.dumps(reset_response, ensure_ascii=False) + "\n"
-                    client_socket.sendall(response_payload.encode('utf-8'))
-                    continue
+                if base64_image:
+                    print("[IMAGE] Image reçue, envoi au modèle visuel...")
 
                 print(f"Question reçue : {question}")
                 print("Inférence en cours...")
                 
                 resultat_ia = poser_question(question, base64_image, memoire_courte)
+
+                print(resultat_ia)
 
                 if isinstance(resultat_ia, dict):
                     memoire_courte = resultat_ia.get("nouvelle_memoire", memoire_courte)
@@ -238,6 +175,17 @@ def demarrer_serveur_socket(host="127.0.0.1", port=5000):
         
         finally:
             client_socket.close()
+
+print("Chargement du modèle en VRAM...")
+chat_handler = Llava15ChatHandler(clip_model_path=MMPROJ_PATH)
+llm = Llama(
+    model_path=MODEL_PATH,
+    chat_handler=chat_handler,
+    n_gpu_layers=-1,
+    n_ctx=4096,
+    verbose=True
+)
+print("Modèle prêt !\n")
 
 if __name__ == "__main__":
     demarrer_serveur_socket(host="127.0.0.1", port=PORT)
