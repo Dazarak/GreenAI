@@ -22,8 +22,9 @@ import java.io.ByteArrayOutputStream
 class MainActivity : AppCompatActivity() {
     private var selectedBase64Image: String = ""
     private val historyFileName = "chat_history.json"
-    private val allMessages = mutableListOf<Message>()
-    private val messageHistory = mutableListOf<Message>()
+
+    private val allPairs = mutableListOf<MessagePair>()
+    private val displayedPairs = mutableListOf<MessagePair>()
     private val pageSize = 20
     private var currentlyDisplayedCount = 0
 
@@ -141,11 +142,11 @@ class MainActivity : AppCompatActivity() {
     private fun saveHistoryToJson() {
         val jsonArray = org.json.JSONArray()
 
-        for (msg in allMessages) {
+        for (pair in allPairs) {
             val jsonObj = org.json.JSONObject().apply {
-                put("content", msg.content)
-                put("imageBase64", msg.imageBase64 ?: "")
-                put("isUser", msg.isUser)
+                put("userContent", pair.userContent)
+                put("userImageBase64", pair.userImageBase64 ?: "")
+                put("aiContent", pair.aiContent)
             }
             jsonArray.put(jsonObj)
         }
@@ -162,58 +163,65 @@ class MainActivity : AppCompatActivity() {
         val jsonString = file.readText()
         if (jsonString.isEmpty()) return
 
-        val jsonArray = org.json.JSONArray(jsonString)
-        allMessages.clear()
+        try {
+            val jsonArray = org.json.JSONArray(jsonString)
+            allPairs.clear()
 
-        for (i in 0 until jsonArray.length()) {
-            val jsonObj = jsonArray.getJSONObject(i)
-            val imageBase64 = jsonObj.optString("imageBase64", "")
+            for (i in 0 until jsonArray.length()) {
+                val jsonObj = jsonArray.getJSONObject(i)
 
-            val msg = Message(
-                content = jsonObj.getString("content"),
-                imageBase64 = if (imageBase64.isNotEmpty()) imageBase64 else null,
-                isUser = jsonObj.getBoolean("isUser")
-            )
-            allMessages.add(msg)
+                val userContent = when {
+                    jsonObj.has("userContent") -> jsonObj.getString("userContent")
+                    jsonObj.has("content") -> jsonObj.getString("content")
+                    else -> ""
+                }
+
+                val userImg = jsonObj.optString("userImageBase64", "")
+                val aiContent = jsonObj.optString("aiContent", "")
+
+                val pair = MessagePair(
+                    userContent = userContent,
+                    userImageBase64 = if (userImg.isNotEmpty()) userImg else null,
+                    aiContent = aiContent
+                )
+                allPairs.add(pair)
+            }
+
+            currentlyDisplayedCount = pageSize.coerceAtMost(allPairs.size)
+            updateDisplayedList(scrollToBottom = true)
+        } catch (e: Exception) {
+            // Si le fichier est complètement corrompu/incompatible, on le réinitialise
+            e.printStackTrace()
+            deleteFile(historyFileName)
         }
-
-        currentlyDisplayedCount = pageSize.coerceAtMost(allMessages.size)
-        updateDisplayedList(scrollToBottom = true)
     }
 
     private fun updateDisplayedList(scrollToBottom: Boolean = false) {
-        messageHistory.clear()
+        displayedPairs.clear()
 
-        val total = allMessages.size
+        val total = allPairs.size
         val startIndex = (total - currentlyDisplayedCount).coerceAtLeast(0)
 
         for (i in startIndex until total) {
-            messageHistory.add(allMessages[i])
+            displayedPairs.add(allPairs[i])
         }
 
         adapter.notifyDataSetChanged()
 
-        if (scrollToBottom && messageHistory.isNotEmpty()) {
-            recyclerView.scrollToPosition(messageHistory.size - 1)
+        if (scrollToBottom && displayedPairs.isNotEmpty()) {
+            recyclerView.scrollToPosition(displayedPairs.size - 1)
         }
     }
 
-    private fun addNewMessage(message: Message) {
-        allMessages.add(message)
-        currentlyDisplayedCount++
-        saveHistoryToJson()
-        updateDisplayedList(scrollToBottom = true)
-    }
-
     private fun loadOlderMessages() {
-        if (currentlyDisplayedCount >= allMessages.size) return
+        if (currentlyDisplayedCount >= allPairs.size) return
 
-        val previousTopItemIndex = allMessages.size - currentlyDisplayedCount
+        val previousTopItemIndex = allPairs.size - currentlyDisplayedCount
 
-        currentlyDisplayedCount = (currentlyDisplayedCount + pageSize).coerceAtMost(allMessages.size)
+        currentlyDisplayedCount = (currentlyDisplayedCount + pageSize).coerceAtMost(allPairs.size)
         updateDisplayedList(scrollToBottom = false)
 
-        val newTopItemIndex = allMessages.size - currentlyDisplayedCount
+        val newTopItemIndex = allPairs.size - currentlyDisplayedCount
         val addedCount = previousTopItemIndex - newTopItemIndex
 
         if (addedCount > 0) {
@@ -225,7 +233,6 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        // Initialisation des vues existantes dans activity_main.xml
         qrCodeTextView = findViewById(R.id.qrCodeTextView)
         messageEditText = findViewById(R.id.messageEditText)
         sendButton = findViewById(R.id.sendButton)
@@ -236,9 +243,7 @@ class MainActivity : AppCompatActivity() {
         buttonRemoveImage = findViewById(R.id.buttonRemoveImage)
         recyclerView = findViewById(R.id.recyclerViewMessages)
 
-        // Configuration du RecyclerView
-        adapter = MessageAdapter(messageHistory)
-
+        adapter = MessageAdapter(displayedPairs)
         layoutManager = LinearLayoutManager(this)
         recyclerView.layoutManager = layoutManager
         recyclerView.adapter = adapter
@@ -258,7 +263,6 @@ class MainActivity : AppCompatActivity() {
             }
         })
 
-        // Récupération de la valeur du QR Code
         val scannedUrl = intent.getStringExtra("EXTRA_QR_RESULT")
         if (scannedUrl != null) {
             qrCodeTextView.text = "DrGrn"
@@ -281,18 +285,21 @@ class MainActivity : AppCompatActivity() {
             }
 
             if (userText.isNotEmpty() || selectedBase64Image.isNotEmpty()) {
-                val userMsg = Message(
-                    content = userText,
-                    imageBase64 = if (selectedBase64Image.isNotEmpty()) compressBase64ForStorage(selectedBase64Image) else null,
-                    isUser = true
+                val imageToSend = selectedBase64Image
+                val compressedImage = if (imageToSend.isNotEmpty()) compressBase64ForStorage(imageToSend) else null
+
+                val newPair = MessagePair(
+                    userContent = userText,
+                    userImageBase64 = compressedImage
                 )
-                addNewMessage(userMsg)
+
+                allPairs.add(newPair)
+                currentlyDisplayedCount++
+                updateDisplayedList(scrollToBottom = true)
 
                 messageEditText.isEnabled = false
                 sendButton.isEnabled = false
                 imageButton.isEnabled = false
-
-                val imageToSend = selectedBase64Image
                 clearSelectedImage()
 
                 ApiClient.sendMessage(
@@ -300,12 +307,9 @@ class MainActivity : AppCompatActivity() {
                     userMessage = userText,
                     base64Image = imageToSend
                 ) { response ->
-                    val aiMsg = Message(
-                        content = response,
-                        imageBase64 = null,
-                        isUser = false
-                    )
-                    addNewMessage(aiMsg)
+                    newPair.aiContent = response
+                    saveHistoryToJson()
+                    adapter.notifyItemChanged(displayedPairs.size - 1)
 
                     messageEditText.text.clear()
                     messageEditText.isEnabled = true
@@ -315,7 +319,6 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // Action du bouton de réinitialisation
         btnRefreshContext.setOnClickListener {
             if (scannedUrl.isNullOrEmpty()) {
                 Toast.makeText(this, "Erreur : Aucun lien scanné !", Toast.LENGTH_SHORT).show()
@@ -327,16 +330,15 @@ class MainActivity : AppCompatActivity() {
             imageButton.isEnabled = false
             btnRefreshContext.isEnabled = false
 
-            val resetUserMsg = Message(content = "/reset", isUser = true)
-            addNewMessage(resetUserMsg)
+            val resetPair = MessagePair(userContent = "/reset")
+            allPairs.add(resetPair)
+            currentlyDisplayedCount++
+            updateDisplayedList(scrollToBottom = true)
 
             ApiClient.sendMessage(scannedUrl, "/reset") { response ->
-                val resetAiMsg = Message(
-                    content = response,
-                    imageBase64 = null,
-                    isUser = false
-                )
-                addNewMessage(resetAiMsg)
+                resetPair.aiContent = response
+                saveHistoryToJson()
+                adapter.notifyItemChanged(displayedPairs.size - 1)
 
                 messageEditText.text.clear()
                 messageEditText.isEnabled = true

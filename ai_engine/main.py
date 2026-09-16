@@ -27,7 +27,7 @@ def process_image(base64_clean: str) -> Image.Image:
         base64_clean = base64_clean.split(",")[1]
     image_bytes = base64.b64decode(base64_clean)
     image = Image.open(BytesIO(image_bytes)).convert("RGB")
-    image.thumbnail((384, 384), Image.Resampling.LANCZOS)
+    image.thumbnail((512, 512), Image.Resampling.LANCZOS)
     return image
 
 def purger_kv_cache(llm_instance):

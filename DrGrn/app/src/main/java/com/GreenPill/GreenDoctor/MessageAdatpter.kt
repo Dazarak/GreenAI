@@ -8,6 +8,7 @@ import android.util.Base64
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.view.animation.AnimationUtils
 import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.LinearLayout
@@ -15,18 +16,21 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.recyclerview.widget.RecyclerView
 
-class MessageAdapter(private val messages: List<Message>) :
+class MessageAdapter(private val pairs: List<MessagePair>) :
     RecyclerView.Adapter<MessageAdapter.MessageViewHolder>() {
 
     class MessageViewHolder(view: View) : RecyclerView.ViewHolder(view) {
+        // User
+        val msgUser: LinearLayout = view.findViewById(R.id.MessageUser)
         val tvUser: TextView = view.findViewById(R.id.UserRequest)
-        val tvAI: TextView = view.findViewById(R.id.AIAnswer)
         val imageInMessage: ImageView = view.findViewById(R.id.imageInMessage)
         val btnCopyUser: ImageButton = view.findViewById(R.id.imageButtonCopyUser)
-        val btnCopyIA: ImageButton = view.findViewById(R.id.imageButtonCopyIA)
 
+        // IA
         val msgIA: LinearLayout = view.findViewById(R.id.MessageIA)
-        val msgUser: LinearLayout = view.findViewById(R.id.MessageUser)
+        val tvAI: TextView = view.findViewById(R.id.AIAnswer)
+        val imgLoader: ImageView = view.findViewById(R.id.imageLoading)
+        val btnCopyIA: ImageButton = view.findViewById(R.id.imageButtonCopyIA)
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): MessageViewHolder {
@@ -36,40 +40,50 @@ class MessageAdapter(private val messages: List<Message>) :
     }
 
     override fun onBindViewHolder(holder: MessageViewHolder, position: Int) {
-        val message = messages[position]
+        val pair = pairs[position]
+        val context = holder.itemView.context
 
-        if (message.isUser) {
-            // Afficher conteneur Utilisateur, cacher conteneur IA
-            holder.msgUser.visibility = View.VISIBLE
-            holder.msgIA.visibility = View.GONE
+        holder.msgUser.visibility = View.VISIBLE
+        holder.tvUser.text = pair.userContent
 
-            holder.tvUser.text = message.content
-
-            if (!message.imageBase64.isNullOrEmpty()) {
-                val bitmap = base64ToBitmap(message.imageBase64)
-                holder.imageInMessage.setImageBitmap(bitmap)
-                holder.imageInMessage.visibility = View.VISIBLE
-            } else {
-                holder.imageInMessage.visibility = View.GONE
-            }
+        if (!pair.userImageBase64.isNullOrEmpty()) {
+            val bitmap = base64ToBitmap(pair.userImageBase64)
+            holder.imageInMessage.setImageBitmap(bitmap)
+            holder.imageInMessage.visibility = View.VISIBLE
         } else {
-            // Afficher conteneur IA, cacher conteneur Utilisateur
-            holder.msgIA.visibility = View.VISIBLE
-            holder.msgUser.visibility = View.GONE
-
-            holder.tvAI.text = message.content
+            holder.imageInMessage.visibility = View.GONE
         }
 
         holder.btnCopyUser.setOnClickListener {
-            copyToClipboard(holder.itemView.context, holder.tvUser.text.toString())
+            copyToClipboard(context, pair.userContent)
         }
 
-        holder.btnCopyIA.setOnClickListener {
-            copyToClipboard(holder.itemView.context, holder.tvAI.text.toString())
+        // 2. Partie IA
+        holder.msgIA.visibility = View.VISIBLE
+
+        if (pair.aiContent == "L'IA réfléchit...") {
+            holder.tvAI.visibility = View.GONE
+            holder.btnCopyIA.visibility = View.GONE
+            holder.imgLoader.visibility = View.VISIBLE
+
+            if (holder.imgLoader.animation == null) {
+                val rotateAnim = AnimationUtils.loadAnimation(context, R.anim.rotate_indefinitely)
+                holder.imgLoader.startAnimation(rotateAnim)
+            }
+        } else {
+            holder.imgLoader.clearAnimation()
+            holder.imgLoader.visibility = View.GONE
+            holder.tvAI.visibility = View.VISIBLE
+            holder.btnCopyIA.visibility = View.VISIBLE
+            holder.tvAI.text = pair.aiContent
+
+            holder.btnCopyIA.setOnClickListener {
+                copyToClipboard(context, pair.aiContent)
+            }
         }
     }
 
-    override fun getItemCount(): Int = messages.size
+    override fun getItemCount(): Int = pairs.size
 
     private fun copyToClipboard(context: Context, text: String) {
         if (text.isNotEmpty()) {
